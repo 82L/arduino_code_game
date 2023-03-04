@@ -96,7 +96,9 @@
 #define BASE_DELAY 300
 
 
-
+#define MUSIC_NONE 0
+#define MUSIC_BUTTON 1
+#define MUSIC_DEATH 2
 
 // Button's pins
 const int btnLeftPin = A0;
@@ -115,25 +117,44 @@ struct MusicNote{
   int time_before_note;
 } ;
 bool music_is_playing = false;
-enum Musics {NONE, BUTTON};
+enum Musics {NONE = MUSIC_NONE , BUTTON = MUSIC_BUTTON, DEATH = MUSIC_DEATH};
 Musics current_music = NONE;
 int current_note = 0;
+int current_number_of_notes = 0;
 int current_wait_time_note = 0;
 long int last_time_note_played = 0;
 
+int notes_number[3] =  {0,2,3};
 struct MusicNote music_buttons[] = {
   {
-    .note = NOTE_A4,
-    .duration = 100,
+    .note = NOTE_GS4,
+    .duration = 20,
     .time_before_note = 0,
   },
   {
-    .note = NOTE_F4,
-    .duration = 100,
-    .time_before_note = 50,
+    .note = NOTE_G4,
+    .duration = 50,
+    .time_before_note = 20,
   }
 };
 
+struct MusicNote music_death[] = {
+  {
+    .note = NOTE_F3,
+    .duration = 200,
+    .time_before_note = 0,
+  },
+  {
+    .note = NOTE_E3,
+    .duration = 200,
+    .time_before_note = 250,
+  },
+  {
+    .note = NOTE_C3,
+    .duration = 500,
+    .time_before_note = 250,
+  }
+};
 
 // CUSTOM CHARACTERS INIT
 byte car[8] = {
@@ -193,7 +214,7 @@ game_state current_game_state = GAME_IS_RUNNING;
 int score = 0;
 
 void setup() {
-  Serial.begin(9600);
+  	Serial.begin(9600);
   
     // indique le nombre de caractères (16) et de lignes (2)
   	lcd.begin(LCD_NUMBER_CHARACTERS, LCD_NUMBER_LINES);
@@ -243,21 +264,25 @@ void loop() {
 
 void try_to_play_note(struct MusicNote music[]){
   long int current_time = millis();
-  if (last_time_note_played + music[current_note].time_before_note > current_time ) {
+  if (current_time - music[current_note].time_before_note > last_time_note_played) {
   	tone(BUZZER_PIN, music[current_note].note, music[current_note].duration);
     current_note++;
-    size_t n = sizeof(music)/sizeof(music[0]);
-    if (n == current_note){
-      current_note = 0;
-      current_music = NONE;
+    last_time_note_played = current_time;
+    //size_t n = sizeof(music)/sizeof(music[0]);
+    //Serial.println(sizeof(&music));
+    //Serial.println(sizeof(music[0]));
+    if (current_note >= current_number_of_notes){
+      set_new_music(MUSIC_NONE);
     }
   }
   
 }
 
-void set_new_music(Musics new_music){
+void set_new_music(int new_music){
   current_note = 0;
-  current_music = new_music;
+  current_music = static_cast<Musics>(new_music);
+  current_number_of_notes = notes_number[new_music];
+
   last_time_note_played = 0;
 }
 
@@ -267,6 +292,9 @@ void play_music(){
     	break;
     case BUTTON:
     	try_to_play_note(music_buttons);
+    	break;
+    case DEATH:
+    	try_to_play_note(music_death);
     	break;
   };
 }
@@ -316,6 +344,7 @@ void test_player_position(){
 
 void show_end_message(){
   	lcd.clear();
+  	set_new_music(MUSIC_DEATH);
    	lcd.setCursor(0, 0);
 	//lcd.print("Game Over");
   	lcd.print("score: ");
@@ -377,7 +406,7 @@ void testPushBtn() {
   btnLeftPressedPrevValue = btnLeft;
   btnRightPressedPrevValue = btnRight;
   if(btnLeftPressed || btnRightPressed){
-    set_new_music(BUTTON);
+    set_new_music(MUSIC_BUTTON);
   }
   
 }
