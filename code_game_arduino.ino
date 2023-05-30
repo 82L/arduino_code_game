@@ -100,6 +100,7 @@
 #define MUSIC_BUTTON 1
 #define MUSIC_DEATH 2
 
+
 // Button's pins
 const int btnLeftPin = A0;
 const int btnRightPin = A1;
@@ -108,7 +109,11 @@ int btnLeftPressedPrevValue = 0;
 int btnRightPressedPrevValue = 0;
 bool btnLeftPressed = false;
 bool btnRightPressed = false;
+bool btnLeftIsDown = false;
+bool btnRightIsDown = false;
 
+bool playerDodgedCar = false;
+long int timeOfDeath = 0;
 // Music Manager
 //typedef struct MusicNote MusicNote;
 struct MusicNote{
@@ -116,6 +121,7 @@ struct MusicNote{
   int duration;
   int time_before_note;
 } ;
+
 bool music_is_playing = false;
 enum Musics {NONE = MUSIC_NONE , BUTTON = MUSIC_BUTTON, DEATH = MUSIC_DEATH};
 Musics current_music = NONE;
@@ -127,32 +133,27 @@ long int last_time_note_played = 0;
 int notes_number[3] =  {0,2,3};
 struct MusicNote music_buttons[] = {
   {
-    .note = NOTE_GS4,
-    .duration = 20,
+    .note = NOTE_B0,
+    .duration = 250,
     .time_before_note = 0,
   },
   {
-    .note = NOTE_G4,
-    .duration = 50,
-    .time_before_note = 20,
+    .note = NOTE_B1,
+    .duration = 150,
+    .time_before_note = 0,
   }
 };
 
 struct MusicNote music_death[] = {
   {
-    .note = NOTE_F3,
-    .duration = 200,
+    .note = NOTE_B1,
+    .duration = 500,
     .time_before_note = 0,
   },
   {
-    .note = NOTE_E3,
-    .duration = 200,
-    .time_before_note = 250,
-  },
-  {
-    .note = NOTE_C3,
-    .duration = 500,
-    .time_before_note = 250,
+    .note = NOTE_B0,
+    .duration = 1000,
+    .time_before_note = 100,
   }
 };
 
@@ -203,6 +204,7 @@ int time_after_new_block = 0;
 int time_before_placing_new_block = 0;
 long int saved_time = -BASE_DELAY;
 int time_block_speed = BASE_DELAY;
+
 
 //Cars generation
 int max_space_between_cars = 6;
@@ -264,21 +266,30 @@ void loop() {
 
 void try_to_play_note(struct MusicNote music[]){
   long int current_time = millis();
-  if (current_time - music[current_note].time_before_note > last_time_note_played) {
+  int time_before_note = 0;
+
+  //Getting number of milliseconds before playing next note
+  if (current_note > 0 ){
+    time_before_note = music[current_note - 1].duration;
+  }
+  time_before_note += music[current_note].time_before_note;
+
+  //If it's time to play next note, and it is not the last note
+  if ( current_note < current_number_of_notes 
+  && last_time_note_played + time_before_note <= current_time  ) {
   	tone(BUZZER_PIN, music[current_note].note, music[current_note].duration);
     current_note++;
     last_time_note_played = current_time;
-    //size_t n = sizeof(music)/sizeof(music[0]);
-    //Serial.println(sizeof(&music));
-    //Serial.println(sizeof(music[0]));
-    if (current_note >= current_number_of_notes){
-      set_new_music(MUSIC_NONE);
-    }
   }
-  
+  // If last note was played, and we passed its duration
+  else if (current_note >= current_number_of_notes &&
+           (last_time_note_played + music[current_note - 1].duration) <= current_time ){
+      set_new_music(MUSIC_NONE);
+  }
 }
 
 void set_new_music(int new_music){
+  noTone(BUZZER_PIN);
   current_note = 0;
   current_music = static_cast<Musics>(new_music);
   current_number_of_notes = notes_number[new_music];
@@ -305,25 +316,32 @@ void play_music(){
 void update_player_position(){
   	if (btnLeftPressed){
     	player_pos = 0;
-      	test_player_position();
-    	update_screen();
   	} else if (btnRightPressed) {
     	player_pos = 1;
-      	test_player_position();
-    	update_screen();
   	}
+    if(btnLeftPressed || btnRightPressed){
+      if(game_map[player_pos][1] == CAR){
+        playerDodgedCar = true;
+      }
+      test_player_position();
+      update_screen();
+    }
+    
+
 }
 
 void test_restart_game(){
-  	if (btnRightPressed) {
+    long int current_time = millis();
+  	if (btnRightPressed && timeOfDeath + 1000 <= current_time) {
     	initialize();
-        update_screen();
+      update_screen();
+      timeOfDeath = 0;
     }
 }
 
 void game_logic(){
   	long int current_time = millis();
-  	if ( current_time - time_block_speed > saved_time ){
+  	if ( saved_time + time_block_speed <= current_time  ){
     	saved_time = current_time;
   		time_after_new_block++;
     	actualize_grid();
@@ -335,10 +353,15 @@ void game_logic(){
 void test_player_position(){
   	if(game_map[player_pos][0] == CAR){
       	current_game_state = SHOW_END_MESSAGE;
+        timeOfDeath = millis();
   	}
     else if (game_map[1 - player_pos][0] == CAR){
+      if(playerDodgedCar){
+        score+=1;
+        playerDodgedCar = false;
+      }
     	score+=1;
-        time_block_speed = BASE_DELAY - (score * 2);
+      time_block_speed = BASE_DELAY - (score * 2);
     }
 }
 
@@ -400,13 +423,25 @@ void testPushBtn() {
   // Read pushbutton
   int btnLeft = analogRead(btnLeftPin);
   int btnRight = analogRead(btnRightPin);
-  
-  btnLeftPressed = (btnLeft < btnLeftPressedPrevValue);
-  btnRightPressed = (btnRight < btnRightPressedPrevValue);
-  btnLeftPressedPrevValue = btnLeft;
-  btnRightPressedPrevValue = btnRight;
+  btnLeftPressed = false;
+  btnRightPressed = false;
+  if (btnLeft < 200 && !btnLeftIsDown){
+    btnLeftPressed = true;
+    btnLeftIsDown = true;
+  }
+  else if(btnLeft > 500)
+  {
+    btnLeftIsDown = false;
+  }
+  if (btnRight < 200 && !btnRightIsDown){
+    btnRightPressed = true;
+    btnRightIsDown = true;
+  }
+  else if(btnRight > 500)
+  {
+    btnRightIsDown = false;
+  }
   if(btnLeftPressed || btnRightPressed){
     set_new_music(MUSIC_BUTTON);
   }
-  
 }
